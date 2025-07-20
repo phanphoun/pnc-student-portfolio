@@ -36,7 +36,52 @@ export default function Home() {
     totalLikes: 0
   })
   const [error, setError] = useState(null)
-
+{/* Navigation */}
+const [showMobileMenu, setShowMobileMenu] = useState(false)
+<motion.nav
+  initial={{ y: -100, opacity: 0 }}
+  animate={{ y: 0, opacity: 1 }}
+  transition={{ duration: 0.8 }}
+  className="fixed top-0 left-0 right-0 z-50 p-6 bg-slate-900/80 backdrop-blur-md border-b border-white/10"
+>
+  <div className="flex justify-between items-center">
+    <motion.div 
+      whileHover={{ scale: 1.05 }}
+      className="text-2xl font-bold bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent"
+    >
+      PNC-Student
+    </motion.div>
+    {/* Desktop Nav */}
+    <div className="hidden md:flex items-center space-x-8">
+      {/* ...existing nav links/buttons... */}
+      {/* Place your nav links/buttons here as before */}
+    </div>
+    {/* Mobile Nav Toggle */}
+    <button
+      className="md:hidden flex items-center justify-center w-10 h-10 rounded-full bg-purple-500/20 hover:bg-purple-500/40 transition"
+      onClick={() => setShowMobileMenu((prev) => !prev)}
+      aria-label="Toggle navigation"
+    >
+      <svg className="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
+      </svg>
+    </button>
+  </div>
+  {/* Mobile Nav Dropdown */}
+  <AnimatePresence>
+    {showMobileMenu && (
+      <motion.div
+        initial={{ height: 0, opacity: 0 }}
+        animate={{ height: "auto", opacity: 1 }}
+        exit={{ height: 0, opacity: 0 }}
+        className="md:hidden flex flex-col space-y-4 mt-4 bg-slate-900/95 rounded-xl p-4 border border-white/10"
+      >
+        {/* ...existing nav links/buttons... */}
+        {/* Place your nav links/buttons here as before, but stacked vertically */}
+      </motion.div>
+    )}
+  </AnimatePresence>
+</motion.nav>
   useEffect(() => {
     const initializeApp = async () => {
       try {
