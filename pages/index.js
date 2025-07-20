@@ -1,14 +1,19 @@
 import Head from 'next/head'
-import { motion } from 'framer-motion'
+import Link from 'next/link'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useState, useEffect } from 'react'
+import { getDatabase } from '../lib/database'
+import ContactForm from '../components/ContactForm'
+import Dashboard from '../components/Dashboard'
 
 const fadeInUp = {
   initial: { opacity: 0, y: 60 },
   animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.6, ease: "easeOut" }
+  transition: { duration: 0.8 }
 }
 
 const staggerContainer = {
+  initial: {},
   animate: {
     transition: {
       staggerChildren: 0.1
@@ -18,12 +23,175 @@ const staggerContainer = {
 
 export default function Home() {
   const [mounted, setMounted] = useState(false)
+  const [showContactForm, setShowContactForm] = useState(false)
+  const [showDashboard, setShowDashboard] = useState(false)
+  const [currentUser, setCurrentUser] = useState(null)
+  const [showAboutModal, setShowAboutModal] = useState(false)
+  const [selectedAboutCard, setSelectedAboutCard] = useState(null)
+  const [likedSkills, setLikedSkills] = useState({})
+  const [skillInteractions, setSkillInteractions] = useState({})
+  const [stats, setStats] = useState({
+    totalVisitors: 0,
+    totalMessages: 0,
+    totalLikes: 0
+  })
+  const [error, setError] = useState(null)
 
   useEffect(() => {
-    setMounted(true)
+    const initializeApp = async () => {
+      try {
+        setMounted(true)
+        
+        // Only initialize database if we're in the browser
+        if (typeof window !== 'undefined') {
+          // Add a small delay to ensure DOM is ready
+          await new Promise(resolve => setTimeout(resolve, 100))
+          
+          const db = getDatabase()
+          
+          // Safely track page view
+          try {
+            db.trackPageView('homepage')
+          } catch (err) {
+            console.warn('Could not track page view:', err)
+          }
+          
+          // Safely initialize visitor tracking
+          try {
+            db.addVisitor({
+              page: 'homepage',
+              userAgent: navigator?.userAgent || 'Unknown',
+              timestamp: new Date().toISOString()
+            })
+          } catch (err) {
+            console.warn('Could not add visitor:', err)
+          }
+          
+          // Safely load existing data
+          try {
+            const statsData = db.getStats()
+            setStats(statsData || { totalVisitors: 0, totalMessages: 0, totalLikes: 0 })
+          } catch (err) {
+            console.warn('Could not load stats:', err)
+          }
+          
+          try {
+            const interactions = db.getSkillInteractions()
+            setSkillInteractions(interactions || {})
+          } catch (err) {
+            console.warn('Could not load skill interactions:', err)
+          }
+          
+          // Safely load liked skills
+          try {
+            const skills = [
+              "JavaScript", "React", "Next.js", "Node.js",
+              "Python", "HTML/CSS", "Git", "Tailwind CSS",
+              "MongoDB", "Express", "TypeScript", "Figma"
+            ]
+            const likes = {}
+            skills.forEach(skill => {
+              try {
+                likes[skill] = db.getLikes('skill', skill) || false
+              } catch (err) {
+                likes[skill] = false
+              }
+            })
+            setLikedSkills(likes)
+          } catch (err) {
+            console.warn('Could not load liked skills:', err)
+          }
+        }
+      } catch (err) {
+        console.error('Error initializing homepage:', err)
+        setError(err)
+      }
+    }
+    
+    initializeApp()
   }, [])
 
-  if (!mounted) return null
+  const handleLogout = () => {
+    const db = getDatabase()
+    db.logout()
+    setCurrentUser(null)
+  }
+
+  const handleLoginClick = () => {
+    window.location.href = '/login'
+  }
+
+  // Simplified error state - just show a basic message without reload button
+  if (error) {
+    console.error('Homepage error:', error)
+    // Don't show error UI, just log and continue with basic functionality
+    setError(null)
+  }
+
+  // Show loading only briefly
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-purple-500 mx-auto mb-4"></div>
+          <p className="text-gray-300">Loading your portfolio...</p>
+        </div>
+      </div>
+    )
+  }
+
+  const handleSkillClick = (skillName) => {
+    const db = getDatabase()
+    const newCount = db.incrementSkillInteraction(skillName)
+    setSkillInteractions(prev => ({ ...prev, [skillName]: newCount }))
+    
+    // Toggle like
+    const isLiked = db.toggleLike('skill', skillName)
+    setLikedSkills(prev => ({ ...prev, [skillName]: isLiked }))
+    
+    // Track interaction
+    db.trackInteraction('skill_click', { skill: skillName, liked: isLiked })
+  }
+
+  const handleContactClick = (label) => {
+    const db = getDatabase()
+    db.trackInteraction('contact_click', { type: label })
+    
+    switch (label) {
+      case "Email":
+        setShowContactForm(true)
+        break;
+      case "LinkedIn":
+        window.open("https://www.linkedin.com/in/your-username/", "_blank");
+        break;
+      case "GitHub":
+        window.open("https://github.com/your-username", "_blank");
+        break;
+      default:
+        break;
+    }
+  }
+
+  const handleProjectBookmark = (projectTitle) => {
+    const db = getDatabase()
+    const isBookmarked = db.toggleBookmark({
+      id: projectTitle.toLowerCase().replace(/\s+/g, '-'),
+      type: 'project',
+      title: projectTitle
+    })
+    
+    db.trackInteraction('project_bookmark', { project: projectTitle, bookmarked: isBookmarked })
+    
+    // Show feedback
+    const message = isBookmarked ? 'Project bookmarked!' : 'Bookmark removed!'
+    if (typeof window !== 'undefined') {
+      const notification = document.createElement('div')
+      notification.textContent = message
+      notification.className = 'fixed top-4 right-4 bg-purple-500 text-white px-4 py-2 rounded-lg z-50'
+      document.body.appendChild(notification)
+      setTimeout(() => document.body.removeChild(notification), 2000)
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-white overflow-hidden">
@@ -42,37 +210,85 @@ export default function Home() {
 
       <main className="relative z-10">
         {/* Navigation */}
-        <motion.nav 
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
-          className="container mx-auto px-6 py-6"
+        <motion.nav
+          initial={{ y: -100, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ duration: 0.8 }}
+          className="fixed top-0 left-0 right-0 z-50 p-6 bg-slate-900/80 backdrop-blur-md border-b border-white/10"
         >
           <div className="flex justify-between items-center">
             <motion.div 
               whileHover={{ scale: 1.05 }}
               className="text-2xl font-bold bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent"
             >
-              PNC
+              PNC-Student
             </motion.div>
-            <div className="hidden md:flex space-x-8">
-              {['About', 'Projects', 'Skills', 'Contact'].map((item) => (
-                <motion.a
-                  key={item}
-                  href={`#${item.toLowerCase()}`}
+            <div className="flex items-center space-x-8">
+              {[
+                { name: 'About', href: '#about' },
+                { name: 'Projects', href: '/project-details' },
+                { name: 'Background', href: '/background-study' },
+                { name: 'Skills', href: '#skills' },
+                { name: 'Contact', href: '#contact' }
+              ].map((item) => (
+                item.href.startsWith('#') ? (
+                  <motion.a
+                    key={item.name}
+                    href={item.href}
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="text-gray-300 hover:text-white transition-colors duration-200 cursor-pointer"
+                  >
+                    {item.name}
+                  </motion.a>
+                ) : (
+                  <Link key={item.name} href={item.href}>
+                    <motion.span
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.95 }}
+                      className="text-gray-300 hover:text-white transition-colors duration-200 cursor-pointer"
+                    >
+                      {item.name}
+                    </motion.span>
+                  </Link>
+                )
+              ))}
+              {currentUser ? (
+                <motion.button
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}
+                  onClick={handleLogout}
                   className="text-gray-300 hover:text-white transition-colors duration-200 cursor-pointer"
+                  title="Logout"
                 >
-                  {item}
-                </motion.a>
-              ))}
+                  Logout
+                </motion.button>
+              ) : (
+                <motion.button
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleLoginClick}
+                  className="text-gray-300 hover:text-white transition-colors duration-200 cursor-pointer"
+                  title="Login"
+                >
+                  Login
+                </motion.button>
+              )}
+              <motion.button
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setShowDashboard(true)}
+                className="text-gray-300 hover:text-white transition-colors duration-200 cursor-pointer"
+                title="User Dashboard"
+              >
+                📊
+              </motion.button>
             </div>
           </div>
         </motion.nav>
 
         {/* Hero Section */}
-        <section className="min-h-screen flex items-center justify-center px-6">
+        <section className="min-h-screen flex items-center justify-center px-6 pt-24">
           <div className="text-center max-w-4xl mx-auto">
             <motion.div
               initial={{ opacity: 0, scale: 0.5 }}
@@ -81,7 +297,7 @@ export default function Home() {
               className="mb-8"
             >
               <h1 className="text-6xl md:text-8xl font-black mb-6 bg-gradient-to-r from-white via-purple-200 to-blue-200 bg-clip-text text-transparent">
-                PNC STUDENT
+              Phan Phoun
               </h1>
               <div className="h-1 w-32 bg-gradient-to-r from-purple-500 to-blue-500 mx-auto mb-8 rounded-full"></div>
             </motion.div>
@@ -92,7 +308,7 @@ export default function Home() {
               transition={{ duration: 0.8, delay: 0.3 }}
               className="text-xl md:text-3xl mb-12 text-gray-300 font-light leading-relaxed"
             >
-              Passionate Student • Future Developer • Tech Enthusiast
+              Passionate Student 💖Future Developer ❤️ Web Developer
             </motion.p>
             
             <motion.div
@@ -101,21 +317,38 @@ export default function Home() {
               transition={{ duration: 0.8, delay: 0.6 }}
               className="flex flex-col sm:flex-row gap-4 justify-center"
             >
-              <motion.button
-                whileHover={{ scale: 1.05, boxShadow: "0 10px 30px rgba(139, 92, 246, 0.3)" }}
-                whileTap={{ scale: 0.95 }}
-                className="px-8 py-4 bg-gradient-to-r from-purple-600 to-blue-600 rounded-full font-semibold text-lg shadow-lg hover:shadow-purple-500/25 transition-all duration-300"
-              >
-                View My Work
-              </motion.button>
+              <Link href="/project-details">
+                <motion.button
+                  whileHover={{ scale: 1.05, boxShadow: "0 10px 30px rgba(139, 92, 246, 0.3)" }}
+                  whileTap={{ scale: 0.95 }}
+                  className="px-8 py-4 bg-gradient-to-r from-purple-600 to-blue-600 rounded-full font-semibold text-lg shadow-lg hover:shadow-purple-500/25 transition-all duration-300"
+                >
+                  View My Work
+                </motion.button>
+              </Link>
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
+                onClick={() => setShowContactForm(true)}
                 className="px-8 py-4 border-2 border-purple-500 rounded-full font-semibold text-lg hover:bg-purple-500/10 transition-all duration-300"
               >
                 Get In Touch
               </motion.button>
             </motion.div>
+
+            {/* Stats Display */}
+            {stats.totalVisitors > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.8, delay: 1 }}
+                className="mt-12 flex justify-center gap-8 text-sm text-gray-400"
+              >
+                <div>👀 {stats.totalVisitors} visitors</div>
+                <div>💬 {stats.totalMessages} messages</div>
+                <div>❤️ {stats.totalLikes} likes</div>
+              </motion.div>
+            )}
           </div>
         </section>
 
@@ -165,18 +398,98 @@ export default function Home() {
                 className="grid grid-cols-2 gap-4"
               >
                 {[
-                  { label: "Student", icon: "🎓" },
-                  { label: "Developer", icon: "💻" },
-                  { label: "Problem Solver", icon: "🧩" },
-                  { label: "Tech Enthusiast", icon: "🚀" }
+                  { 
+                    label: "Student", 
+                    icon: "🎓",
+                    title: "Passionate Learner",
+                    description: "Currently pursuing my academic journey with a focus on computer science and technology. I believe in the power of continuous learning and academic excellence.",
+                    details: [
+                      "📚 Computer Science Student",
+                      "🏆 Academic Excellence Focus",
+                      "📖 Continuous Learning Mindset",
+                      "🎯 Goal-Oriented Approach",
+                      "👥 Collaborative Team Player"
+                    ],
+                    achievements: [
+                      "Dean's List Recognition",
+                      "Programming Competition Participant",
+                      "Study Group Leader",
+                      "Academic Mentor"
+                    ]
+                  },
+                  { 
+                    label: "Developer", 
+                    icon: "💻",
+                    title: "Full-Stack Developer",
+                    description: "Building modern web applications with cutting-edge technologies. I specialize in creating responsive, user-friendly interfaces and robust backend systems.",
+                    details: [
+                      "🌐 Frontend: React, Next.js, TypeScript",
+                      "⚙️ Backend: Node.js, Express, Python",
+                      "🗄️ Database: MongoDB, PostgreSQL",
+                      "🎨 Design: Figma, Tailwind CSS",
+                      "🔧 Tools: Git, VS Code, Docker"
+                    ],
+                    achievements: [
+                      "10+ Personal Projects",
+                      "Open Source Contributor",
+                      "Modern Tech Stack Expertise",
+                      "Responsive Design Specialist"
+                    ]
+                  },
+                  { 
+                    label: "Problem Solver", 
+                    icon: "🧩",
+                    title: "Analytical Thinker",
+                    description: "I thrive on breaking down complex problems into manageable solutions. My approach combines logical thinking with creative problem-solving techniques.",
+                    details: [
+                      "🔍 Root Cause Analysis",
+                      "💡 Creative Solution Design",
+                      "📊 Data-Driven Decisions",
+                      "🔄 Iterative Improvement",
+                      "🎯 Efficient Implementation"
+                    ],
+                    achievements: [
+                      "Algorithm Optimization Expert",
+                      "Debug Master",
+                      "System Architecture Designer",
+                      "Performance Optimization Specialist"
+                    ]
+                  },
+                  { 
+                    label: "Tech Enthusiast", 
+                    icon: "🚀",
+                    title: "Innovation Explorer",
+                    description: "Always excited about emerging technologies and industry trends. I love exploring new frameworks, tools, and methodologies to stay ahead of the curve.",
+                    details: [
+                      "🤖 AI & Machine Learning Interest",
+                      "☁️ Cloud Computing Explorer",
+                      "📱 Mobile Development Enthusiast",
+                      "🔒 Cybersecurity Awareness",
+                      "🌟 Latest Tech Trends Follower"
+                    ],
+                    achievements: [
+                      "Early Technology Adopter",
+                      "Tech Community Member",
+                      "Innovation Workshop Participant",
+                      "Future Tech Researcher"
+                    ]
+                  }
                 ].map((item, index) => (
                   <motion.div
                     key={item.label}
                     whileHover={{ scale: 1.05, y: -5 }}
-                    className="bg-white/5 backdrop-blur-sm p-6 rounded-xl border border-white/10 text-center"
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => {
+                      setSelectedAboutCard(item)
+                      setShowAboutModal(true)
+                    }}
+                    className="bg-white/5 backdrop-blur-sm p-6 rounded-xl border border-white/10 text-center cursor-pointer hover:border-purple-500/50 transition-all duration-300 group"
                   >
-                    <div className="text-3xl mb-3">{item.icon}</div>
-                    <div className="text-sm font-medium text-gray-300">{item.label}</div>
+                    <div className="text-3xl mb-3 group-hover:scale-110 transition-transform duration-300">{item.icon}</div>
+                    <div className="text-sm font-medium text-gray-300 group-hover:text-white transition-colors duration-300">{item.label}</div>
+                    <div className="text-xs text-purple-400 mt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                      Click to learn more
+                    </div>
                   </motion.div>
                 ))}
               </motion.div>
@@ -195,7 +508,7 @@ export default function Home() {
               className="text-center mb-16"
             >
               <h2 className="text-4xl md:text-5xl font-bold mb-4 bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent">
-                Skills & Technologies
+                Skills & development
               </h2>
               <div className="h-1 w-20 bg-gradient-to-r from-purple-500 to-blue-500 mx-auto rounded-full"></div>
             </motion.div>
@@ -208,17 +521,49 @@ export default function Home() {
               className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6"
             >
               {[
-                "JavaScript", "React", "Next.js", "Node.js",
-                "Python", "HTML/CSS", "Git", "Tailwind CSS",
-                "MongoDB", "Express", "TypeScript", "Figma"
+                { name: "JavaScript", icon: "🟨", hasPage: true },
+                { name: "React", icon: "⚛️", hasPage: true },
+                { name: "Python", icon: "🐍", hasPage: true },
+                { name: "Next.js", icon: "▲", hasPage: true },
+                { name: "Node.js", icon: "🟢", hasPage: true },
+                { name: "HTML/CSS", icon: "🎨", hasPage: true },
+                { name: "Git", icon: "📚", hasPage: true },
+                { name: "Tailwind CSS", icon: "👨‍💻", hasPage: true },
+                { name: "MongoDB", icon: "🍃", hasPage: true },
+                { name: "Express", icon: "🚀", hasPage: true },
+                { name: "TypeScript", icon: "📘", hasPage: true },
+                { name: "Figma", icon: "🎨", hasPage: true }
               ].map((skill) => (
                 <motion.div
-                  key={skill}
+                  key={skill.name}
                   variants={fadeInUp}
                   whileHover={{ scale: 1.05, y: -5 }}
-                  className="bg-white/5 backdrop-blur-sm p-4 rounded-xl border border-white/10 text-center hover:border-purple-500/50 transition-all duration-300"
+                  className="bg-white/5 backdrop-blur-sm p-4 rounded-xl border border-white/10 text-center hover:border-purple-500/50 transition-all duration-300 cursor-pointer group"
+                  onClick={() => {
+                    if (skill.hasPage) {
+                      window.location.href = `/skills/${skill.name.toLowerCase()}`
+                    } else {
+                      handleSkillClick(skill.name)
+                    }
+                  }}
                 >
-                  <div className="text-lg font-medium text-white">{skill}</div>
+                  <div className="text-3xl mb-2">{skill.icon}</div>
+                  <div className="text-lg font-medium text-white mb-2">{skill.name}</div>
+                  {skill.hasPage ? (
+                    <div className="text-sm text-purple-400 group-hover:text-white transition-colors duration-200">
+                      📚 Learn More
+                    </div>
+                  ) : (
+                    <button
+                      className="text-sm text-purple-500 hover:text-white transition-colors duration-200"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleSkillClick(skill.name)
+                      }}
+                    >
+                      {likedSkills[skill.name] ? '❤️ Liked' : '🤍 Like'}
+                    </button>
+                  )}
                 </motion.div>
               ))}
             </motion.div>
@@ -285,6 +630,12 @@ export default function Home() {
                       </span>
                     ))}
                   </div>
+                  <button
+                    className="text-sm text-purple-500 hover:text-white transition-colors duration-200"
+                    onClick={() => handleProjectBookmark(project.title)}
+                  >
+                    Bookmark
+                  </button>
                 </motion.div>
               ))}
             </div>
@@ -322,20 +673,20 @@ export default function Home() {
                   {
                     icon: "📧",
                     label: "Email",
-                    value: "your.email@example.com",
-                    href: "mailto:your.email@example.com"
+                    value: "phanphoun@gmail.com",
+                    href: "mailto:phanphoun@gmail.com"
                   },
                   {
                     icon: "💼",
                     label: "LinkedIn",
-                    value: "/your-profile",
-                    href: "https://linkedin.com/in/your-profile"
+                    value: "phanphoun",
+                    href: "https://linkedin.com/in/phanphoun"
                   },
                   {
                     icon: "🐙",
                     label: "GitHub",
-                    value: "/your-username",
-                    href: "https://github.com/your-username"
+                    value: "phanphoun.github.io",
+                    href: "https://github.com/phanphoun.github.io"
                   }
                 ].map((contact) => (
                   <motion.a
@@ -347,6 +698,12 @@ export default function Home() {
                     <div className="text-3xl mb-3">{contact.icon}</div>
                     <div className="text-lg font-semibold text-white mb-1">{contact.label}</div>
                     <div className="text-gray-300">{contact.value}</div>
+                    <button
+                      className="text-sm text-purple-500 hover:text-white transition-colors duration-200"
+                      onClick={() => handleContactClick(contact.label)}
+                    >
+                      Contact
+                    </button>
                   </motion.a>
                 ))}
               </div>
@@ -369,6 +726,124 @@ export default function Home() {
           </motion.p>
         </div>
       </footer>
+
+      {/* Modals */}
+      <AnimatePresence>
+        {showContactForm && (
+          <ContactForm
+            key="contact-form"
+            onClose={() => setShowContactForm(false)}
+          />
+        )}
+        {showDashboard && (
+          <Dashboard
+            key="dashboard"
+            onClose={() => setShowDashboard(false)}
+          />
+        )}
+        {showAboutModal && selectedAboutCard && (
+          <motion.div
+            key="about-modal"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={() => setShowAboutModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              className="bg-gradient-to-br from-slate-900/95 to-purple-900/95 backdrop-blur-xl rounded-2xl border border-white/20 p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex justify-between items-start mb-6">
+                <div className="flex items-center gap-4">
+                  <div className="text-5xl">{selectedAboutCard.icon}</div>
+                  <div>
+                    <h2 className="text-3xl font-bold text-white mb-2">{selectedAboutCard.title}</h2>
+                    <span className="px-3 py-1 bg-purple-500/20 text-purple-300 rounded-full text-sm border border-purple-500/30">
+                      {selectedAboutCard.label}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowAboutModal(false)}
+                  className="text-gray-400 hover:text-white transition-colors p-2 hover:bg-white/10 rounded-lg"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Description */}
+              <div className="mb-8">
+                <p className="text-gray-300 text-lg leading-relaxed">
+                  {selectedAboutCard.description}
+                </p>
+              </div>
+
+              {/* Details Section */}
+              <div className="mb-8">
+                <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                  <span className="text-purple-400">🔍</span>
+                  Key Details
+                </h3>
+                <div className="grid gap-3">
+                  {selectedAboutCard.details.map((detail, index) => (
+                    <motion.div
+                      key={index}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: index * 0.1 }}
+                      className="flex items-center gap-3 p-3 bg-white/5 rounded-lg border border-white/10"
+                    >
+                      <span className="text-gray-300">{detail}</span>
+                    </motion.div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Achievements Section */}
+              <div className="mb-6">
+                <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                  <span className="text-yellow-400">🏆</span>
+                  Achievements & Highlights
+                </h3>
+                <div className="grid md:grid-cols-2 gap-3">
+                  {selectedAboutCard.achievements.map((achievement, index) => (
+                    <motion.div
+                      key={index}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.1 + 0.3 }}
+                      className="flex items-center gap-3 p-3 bg-gradient-to-r from-purple-500/10 to-blue-500/10 rounded-lg border border-purple-500/20"
+                    >
+                      <span className="text-green-400 text-sm">✓</span>
+                      <span className="text-gray-300 text-sm">{achievement}</span>
+                    </motion.div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Action Button */}
+              <div className="flex justify-center pt-4">
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setShowAboutModal(false)}
+                  className="px-8 py-3 bg-gradient-to-r from-purple-600 to-blue-600 rounded-lg font-semibold text-white hover:shadow-lg hover:shadow-purple-500/25 transition-all duration-300"
+                >
+                  Got it! 👍
+                </motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
