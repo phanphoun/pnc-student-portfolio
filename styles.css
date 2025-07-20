@@ -28,6 +28,7 @@ body {
     top: 0;
     width: 100%;
     background: rgba(255, 255, 255, 0.95);
+    -webkit-backdrop-filter: blur(10px);
     backdrop-filter: blur(10px);
     z-index: 1000;
     padding: 1rem 0;
@@ -202,10 +203,7 @@ body {
     align-items: center;
     /* box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2); */
 }
-.hero-avatar {
-    /* box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2); */
-    /* background: linear-gradient(45deg, #667eea 0%, #764ba2 100%); */
-}
+/* .hero-avatar ruleset removed because it was empty */
 
 .hero-avatar img {
     width: 300px;
